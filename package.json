@@ -1,0 +1,21 @@
+{
+  "name": "getstartedwithplaywright",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:api": "playwright test --project=api",
+    "test:ci": "playwright test --grep-invert @exploratory",
+    "test:exploratory": "playwright test --grep @exploratory",
+    "test:performance": "k6 run tests/performance/saucedemo-load.test.js",
+    "test:ui": "playwright test --ui"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.1"
+  }
+}
