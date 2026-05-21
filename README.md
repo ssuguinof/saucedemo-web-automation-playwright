@@ -9,6 +9,7 @@ Projeto de automacao de testes para o site [SauceDemo](https://www.saucedemo.com
 - Page Object Model
 - k6
 - GitHub Actions
+- Slack Incoming Webhooks
 
 ## Estrutura
 
@@ -120,9 +121,20 @@ O workflow principal fica em `.github/workflows/playwright.yml`.
 
 Ele roda:
 
-- testes de API;
 - testes UI estaveis;
 - upload do relatorio HTML do Playwright.
+- envio do resumo da execucao para o Slack.
+
+O workflow usa o secret `SLACK_WEBHOOK_URL` para publicar a notificacao no Slack via Incoming Webhook.
+A mensagem inclui status da execucao, total de testes, aprovados, falhas, testes flaky, ignorados,
+duracao e links para a execucao e os artefatos no GitHub Actions.
+
+Para configurar a integracao em outro repositorio ou workspace:
+
+1. Crie um app no Slack em `https://api.slack.com/apps`.
+2. Ative `Incoming Webhooks`.
+3. Crie um webhook para o canal desejado.
+4. No GitHub, adicione a URL em `Settings > Secrets and variables > Actions` com o nome `SLACK_WEBHOOK_URL`.
 
 Os testes de performance com k6 ficam fora do CI/CD por enquanto e podem ser executados localmente quando necessario.
 
