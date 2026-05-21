@@ -1,6 +1,7 @@
 name: Playwright Tests
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, master ]
   pull_request:
@@ -21,6 +22,8 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Run stable UI tests
+      id: tests
+      continue-on-error: true
       run: npm run test:ci
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
@@ -28,3 +31,92 @@ jobs:
         name: ui-playwright-report
         path: playwright-report/
         retention-days: 30
+    - name: Notify Slack
+      if: ${{ always() }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        TEST_OUTCOME: ${{ steps.tests.outcome }}
+        REPOSITORY: ${{ github.repository }}
+        WORKFLOW_NAME: ${{ github.workflow }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_NUMBER: ${{ github.run_number }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+        REF_NAME: ${{ github.ref_name }}
+        ACTOR: ${{ github.actor }}
+        SERVER_URL: ${{ github.server_url }}
+      run: |
+        if [ -z "$SLACK_WEBHOOK_URL" ]; then
+          echo "SLACK_WEBHOOK_URL secret is not configured. Skipping Slack notification."
+          exit 0
+        fi
+
+        node <<'NODE'
+        const fs = require('fs');
+        const path = 'test-results/playwright-results.json';
+        const result = fs.existsSync(path)
+          ? JSON.parse(fs.readFileSync(path, 'utf8'))
+          : null;
+
+        const stats = result?.stats ?? {};
+        const total = stats.expected + stats.unexpected + stats.flaky + stats.skipped;
+        const passed = stats.expected ?? 0;
+        const failed = stats.unexpected ?? 0;
+        const flaky = stats.flaky ?? 0;
+        const skipped = stats.skipped ?? 0;
+        const duration = stats.duration
+          ? `${Math.round(stats.duration / 1000)}s`
+          : 'N/A';
+        const ok = process.env.TEST_OUTCOME === 'success';
+        const runUrl = `${process.env.SERVER_URL}/${process.env.REPOSITORY}/actions/runs/${process.env.RUN_ID}`;
+        const reportUrl = `${runUrl}/artifacts`;
+        const statusText = ok ? 'passou' : 'falhou';
+        const statusEmoji = ok ? ':white_check_mark:' : ':x:';
+
+        const payload = {
+          text: `${statusEmoji} Playwright ${statusText} - ${process.env.REPOSITORY}`,
+          blocks: [
+            {
+              type: 'header',
+              text: {
+                type: 'plain_text',
+                text: `Playwright ${statusText}`,
+                emoji: true,
+              },
+            },
+            {
+              type: 'section',
+              fields: [
+                { type: 'mrkdwn', text: `*Repositorio:*\n${process.env.REPOSITORY}` },
+                { type: 'mrkdwn', text: `*Workflow:*\n${process.env.WORKFLOW_NAME}` },
+                { type: 'mrkdwn', text: `*Run:*\n#${process.env.RUN_NUMBER}.${process.env.RUN_ATTEMPT}` },
+                { type: 'mrkdwn', text: `*Branch:*\n${process.env.REF_NAME}` },
+                { type: 'mrkdwn', text: `*Autor:*\n${process.env.ACTOR}` },
+                { type: 'mrkdwn', text: `*Duracao:*\n${duration}` },
+              ],
+            },
+            {
+              type: 'section',
+              fields: [
+                { type: 'mrkdwn', text: `*Total:*\n${total || 'N/A'}` },
+                { type: 'mrkdwn', text: `*Passou:*\n${passed}` },
+                { type: 'mrkdwn', text: `*Falhou:*\n${failed}` },
+                { type: 'mrkdwn', text: `*Flaky:*\n${flaky}` },
+                { type: 'mrkdwn', text: `*Ignorado:*\n${skipped}` },
+              ],
+            },
+            {
+              type: 'actions',
+              elements: [
+                { type: 'button', text: { type: 'plain_text', text: 'Abrir execucao' }, url: runUrl },
+                { type: 'button', text: { type: 'plain_text', text: 'Abrir artefatos' }, url: reportUrl },
+              ],
+            },
+          ],
+        };
+
+        fs.writeFileSync('slack-payload.json', JSON.stringify(payload));
+        NODE
+        curl --fail-with-body -H "Content-Type: application/json" -d @slack-payload.json "$SLACK_WEBHOOK_URL"
+    - name: Fail job when tests fail
+      if: ${{ steps.tests.outcome == 'failure' }}
+      run: exit 1
